@@ -175,22 +175,64 @@
 /*-----------------------------------------------------------*/
 
     #if ( configNUMBER_OF_CORES == 1 )
-        #define taskSELECT_HIGHEST_PRIORITY_TASK()                                       \
-    do {                                                                                 \
-        UBaseType_t uxTopPriority = uxTopReadyPriority;                                  \
-                                                                                         \
-        /* Find the highest priority queue that contains ready tasks. */                 \
-        while( listLIST_IS_EMPTY( &( pxReadyTasksLists[ uxTopPriority ] ) ) != pdFALSE ) \
-        {                                                                                \
-            configASSERT( uxTopPriority );                                               \
-            --uxTopPriority;                                                             \
-        }                                                                                \
-                                                                                         \
-        /* listGET_OWNER_OF_NEXT_ENTRY indexes through the list, so the tasks of \
-         * the  same priority get an equal share of the processor time. */                    \
-        listGET_OWNER_OF_NEXT_ENTRY( pxCurrentTCB, &( pxReadyTasksLists[ uxTopPriority ] ) ); \
-        uxTopReadyPriority = uxTopPriority;                                                   \
-    } while( 0 ) /* taskSELECT_HIGHEST_PRIORITY_TASK */
+        # if( configUSE_EDF_SCHEDULER == 1)
+            #define taskSELECT_HIGHEST_PRIORITY_TASK() \
+            do { \
+                UBaseType_t uxTopPriority = uxTopReadyPriority; \
+                if (uxTopPriority == configEDF_PRIORITY_LEVEL) \
+                { \
+                    TCB_t *pxTCB; \
+                    TCB_t *pxEarliestDeadlineTCB = NULL; \
+                    TickType_t xEarliestDeadline = portMAX_DELAY; \
+                    List_t *pxList = &(pxReadyTasksLists[configEDF_PRIORITY_LEVEL]); \
+                    ListItem_t *pxListItem = (pxList)->pxIndex; \
+                    do \
+                    { \
+                        pxListItem = pxListItem->pxNext; \
+                        if (pxListItem == &(pxList->xListEnd)) \
+                        { \
+                            pxListItem = pxListItem->pxNext; \
+                        } \
+                        pxTCB = (TCB_t *)(pxListItem->pvOwner); \
+                        if (pxTCB->jobDeadline < xEarliestDeadline) \
+                        { \
+                            xEarliestDeadline = pxTCB->jobDeadline; \
+                            pxEarliestDeadlineTCB = pxTCB; \
+                        } \
+                    } while (pxListItem != (pxList)->pxIndex); \
+                    pxCurrentTCB = pxEarliestDeadlineTCB; \
+                } \
+                else \
+                { \
+                    while (listLIST_IS_EMPTY(&(pxReadyTasksLists[uxTopPriority])) != pdFALSE) \
+                    { \
+                        configASSERT(uxTopPriority); \
+                        --uxTopPriority; \
+                    } \
+                    listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists[uxTopPriority])); \
+                    uxTopReadyPriority = uxTopPriority; \
+                } \
+            } while(0)
+        # else /* if ( config_USE_EDF_SCHEDULER)*/
+                #define taskSELECT_HIGHEST_PRIORITY_TASK()                                       \
+            do {                                                                                 \
+                UBaseType_t uxTopPriority = uxTopReadyPriority;                                  \
+                                                                                                \
+                /* Find the highest priority queue that contains ready tasks. */                 \
+                while( listLIST_IS_EMPTY( &( pxReadyTasksLists[ uxTopPriority ] ) ) != pdFALSE ) \
+                {                                                                                \
+                    configASSERT( uxTopPriority );                                               \
+                    --uxTopPriority;                                                             \
+                }                                                                                \
+                                                                                                \
+                /* listGET_OWNER_OF_NEXT_ENTRY indexes through the list, so the tasks of \
+                * the  same priority get an equal share of the processor time. */                    \
+                listGET_OWNER_OF_NEXT_ENTRY( pxCurrentTCB, &( pxReadyTasksLists[ uxTopPriority ] ) ); \
+                uxTopReadyPriority = uxTopPriority;                                                   \
+            } while( 0 ) /* taskSELECT_HIGHEST_PRIORITY_TASK */
+
+
+        #endif
     #else /* if ( configNUMBER_OF_CORES == 1 ) */
 
         #define taskSELECT_HIGHEST_PRIORITY_TASK( xCoreID )    prvSelectHighestPriorityTask( xCoreID )
@@ -432,6 +474,13 @@ typedef struct tskTaskControlBlock       /* The old naming convention is used to
 
     #if ( configUSE_POSIX_ERRNO == 1 )
         int iTaskErrno;
+    #endif
+
+    #if (configUSE_EDF_SCHEDULER == 1)
+        TickType_t taskPeriod;
+        TickType_t taskDeadline;
+        TickType_t jobDeadline;
+        bool jobComplete;
     #endif
 } tskTCB;
 
@@ -1752,6 +1801,46 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
 
         return xReturn;
     }
+
+    #if (configUSE_EDF_SCHEDULER == 1)
+        BaseType_t xTaskCreateEDF(TaskFunction_t pxTaskCode,
+                          const char * const pcName,
+                          const configSTACK_DEPTH_TYPE uxStackDepth,
+                          void * const pvParameters,
+                          UBaseType_t uxPriority,
+                          TaskHandle_t * const pxCreatedTask,
+                          TickType_t xPeriod,
+                          TickType_t xDeadline)
+            {
+                TCB_t *pxNewTCB;
+                BaseType_t xReturn;
+
+                // Allocate memory for the new TCB
+                pxNewTCB = (TCB_t *)pvPortMalloc(sizeof(TCB_t));
+                if (pxNewTCB != NULL)
+                {
+                    // Initialize the new task
+                    prvInitialiseNewTask(pxTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, pxCreatedTask, pxNewTCB, NULL);
+
+                    // Set the period and deadline
+                    pxNewTCB->taskPeriod = xPeriod;
+                    pxNewTCB->taskDeadline = xDeadline;
+                    pxNewTCB->jobDeadline = xDeadline;
+                    pxNewTCB->jobComplete = true;
+
+                    // Add the new task to the ready list
+                    prvAddNewTaskToReadyList(pxNewTCB);
+
+                    xReturn = pdPASS;
+                }
+                else
+                {
+                    xReturn = errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
+                }
+
+                return xReturn;
+            }
+    #endif
 /*-----------------------------------------------------------*/
 
     #if ( ( configNUMBER_OF_CORES > 1 ) && ( configUSE_CORE_AFFINITY == 1 ) )
@@ -4794,6 +4883,18 @@ BaseType_t xTaskIncrementTick( void )
                     {
                         mtCOVERAGE_TEST_MARKER();
                     }
+
+
+                    #if(configUSE_EDF_SCHEDULER == 1)
+                        if (pxTCB->taskDeadline > 0 && pxTCB->uxPriority == configEDF_PRIORITY_LEVEL)
+                        {
+                            /* Job is complete, update the job deadline. */
+                            pxTCB->jobDeadline = xConstTickCount + pxTCB->taskDeadline;
+                            /* Mark the task as incomplete for the next job execution. */
+                            pxTCB->jobComplete = pdFALSE;
+
+                        }
+                    #endif
 
                     /* Place the unblocked task into the appropriate ready
                      * list. */

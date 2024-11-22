@@ -388,6 +388,16 @@ typedef enum
                             void * const pvParameters,
                             UBaseType_t uxPriority,
                             TaskHandle_t * const pxCreatedTask ) PRIVILEGED_FUNCTION;
+    #if (configUSE_EDF_SCHEDULER == 1 )
+        BaseType_t xTaskCreateEDF(TaskFunction_t pxTaskCode,
+                          const char * const pcName,
+                          const configSTACK_DEPTH_TYPE uxStackDepth,
+                          void * const pvParameters,
+                          UBaseType_t uxPriority,
+                          TaskHandle_t * const pxCreatedTask,
+                          TickType_t xPeriod,
+                          TickType_t xDeadline);
+    #endif
 #endif
 
 #if ( ( configSUPPORT_DYNAMIC_ALLOCATION == 1 ) && ( configNUMBER_OF_CORES > 1 ) && ( configUSE_CORE_AFFINITY == 1 ) )

@@ -412,7 +412,7 @@
         #define portGET_CORE_ID()    0
     #else
         #error configNUMBER_OF_CORES is set to more than 1 then portGET_CORE_ID must also be defined.
-    #endif /* configNUMBER_OF_CORES */
+    #endif /* config/_OF_CORES */
 
 #endif /* portGET_CORE_ID */
 
