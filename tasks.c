@@ -138,7 +138,7 @@
  */
 #define tskRUNNING_CHAR      ( 'X' )
 #define tskBLOCKED_CHAR      ( 'B' )
-#define tskREADY_CHAR        ( 'R' )
+#define tskREADY_CHAR        ( 'R' )`
 #define tskDELETED_CHAR      ( 'D' )
 #define tskSUSPENDED_CHAR    ( 'S' )
 
@@ -175,44 +175,8 @@
 /*-----------------------------------------------------------*/
 
     #if ( configNUMBER_OF_CORES == 1 )
-        # if( configUSE_EDF_SCHEDULER == 1)
-            #define taskSELECT_HIGHEST_PRIORITY_TASK() \
-            do { \
-                UBaseType_t uxTopPriority = uxTopReadyPriority; \
-                if (uxTopPriority == configEDF_PRIORITY_LEVEL) \
-                { \
-                    TCB_t *pxTCB; \
-                    TCB_t *pxEarliestDeadlineTCB = NULL; \
-                    TickType_t xEarliestDeadline = portMAX_DELAY; \
-                    List_t *pxList = &(pxReadyTasksLists[configEDF_PRIORITY_LEVEL]); \
-                    ListItem_t *pxListItem = (pxList)->pxIndex; \
-                    do \
-                    { \
-                        pxListItem = pxListItem->pxNext; \
-                        if (pxListItem == &(pxList->xListEnd)) \
-                        { \
-                            pxListItem = pxListItem->pxNext; \
-                        } \
-                        pxTCB = (TCB_t *)(pxListItem->pvOwner); \
-                        if (pxTCB->jobDeadline < xEarliestDeadline) \
-                        { \
-                            xEarliestDeadline = pxTCB->jobDeadline; \
-                            pxEarliestDeadlineTCB = pxTCB; \
-                        } \
-                    } while (pxListItem != (pxList)->pxIndex); \
-                    pxCurrentTCB = pxEarliestDeadlineTCB; \
-                } \
-                else \
-                { \
-                    while (listLIST_IS_EMPTY(&(pxReadyTasksLists[uxTopPriority])) != pdFALSE) \
-                    { \
-                        configASSERT(uxTopPriority); \
-                        --uxTopPriority; \
-                    } \
-                    listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists[uxTopPriority])); \
-                    uxTopReadyPriority = uxTopPriority; \
-                } \
-            } while(0)
+        # if( configUSE_EDF_SCHEDULER == 1) 
+            #define taskSELECT_HIGHEST_PRIORITY_TASK()  prvSelectHighestPriorityTaskEDF()
         # else /* if ( config_USE_EDF_SCHEDULER)*/
                 #define taskSELECT_HIGHEST_PRIORITY_TASK()                                       \
             do {                                                                                 \
@@ -605,6 +569,13 @@ static BaseType_t prvCreateIdleTasks( void );
  */
     static void prvSelectHighestPriorityTask( BaseType_t xCoreID );
 #endif /* #if ( configNUMBER_OF_CORES > 1 ) */
+
+// #if ( configUSE_EDF_SCHEDULER == 1 )
+/*
+ * Selects the highest priority available task for the given core.
+ */
+static void prvSelectHighestPriorityTaskEDF( void );
+// #endif /* #if ( configUSE_EDF_SCHEDULER == 1 ) */
 
 /**
  * Utility task that simply returns pdTRUE if the task referenced by xTask is
@@ -1300,6 +1271,46 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
 
 /*-----------------------------------------------------------*/
 
+static void prvSelectHighestPriorityTaskEDF(void){
+    do { 
+                UBaseType_t uxTopPriority = uxTopReadyPriority; 
+                if (uxTopPriority == configEDF_PRIORITY_LEVEL) 
+                { 
+                    TCB_t * pxTCB; 
+                    TCB_t * pxEarliestDeadlineTCB = NULL; 
+                    TickType_t xEarliestDeadline = portMAX_DELAY; 
+                    List_t * const pxConstList = (&(pxReadyTasksLists[configEDF_PRIORITY_LEVEL])); 
+                    ListItem t * pxFirstItem;
+
+                    do 
+                    { 
+                        (pxConstList)->pxIndex = (pxConstList)->pxIndex->pxNext; 
+                        if ( (void *) (pxConstList)->pxIndex ==  (void *) &((pxConstList)->xListEnd))
+                        { 
+                            pxConstList->pxIndex = (pxConstList)->xListEnd.pxNext; 
+                        } 
+                        pxTCB = (pxConstList)->pxIndex->pvOwner; 
+                        if (pxTCB->jobDeadline < xEarliestDeadline) 
+                        { 
+                            xEarliestDeadline = pxTCB->jobDeadline; 
+                            pxEarliestDeadlineTCB = pxTCB; 
+                        } 
+                    } while (pxConstList->pxIndex != pxFirstItem); 
+                    pxCurrentTCB = pxEarliestDeadlineTCB; 
+                } 
+                else 
+                { 
+                    while (listLIST_IS_EMPTY(&(pxReadyTasksLists[uxTopPriority])) != pdFALSE) 
+                    { 
+                        configASSERT(uxTopPriority); 
+                        --uxTopPriority; 
+                    } 
+                    listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists[uxTopPriority])); 
+                    uxTopReadyPriority = uxTopPriority; 
+                } 
+            } while(0);
+}
+
 #if ( configSUPPORT_STATIC_ALLOCATION == 1 )
 
     static TCB_t * prvCreateStaticTask( TaskFunction_t pxTaskCode,
@@ -1815,13 +1826,12 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
                 TCB_t *pxNewTCB;
                 BaseType_t xReturn;
 
+                pxNewTCB = prvCreateTask(pxTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, pxCreatedTask);
                 // Allocate memory for the new TCB
-                pxNewTCB = (TCB_t *)pvPortMalloc(sizeof(TCB_t));
+
                 if (pxNewTCB != NULL)
                 {
-                    // Initialize the new task
-                    prvInitialiseNewTask(pxTaskCode, pcName, uxStackDepth, pvParameters, uxPriority, pxCreatedTask, pxNewTCB, NULL);
-
+                
                     // Set the period and deadline
                     pxNewTCB->taskPeriod = xPeriod;
                     pxNewTCB->taskDeadline = xDeadline;
@@ -1830,7 +1840,6 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
 
                     // Add the new task to the ready list
                     prvAddNewTaskToReadyList(pxNewTCB);
-
                     xReturn = pdPASS;
                 }
                 else
