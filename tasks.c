@@ -138,7 +138,7 @@
  */
 #define tskRUNNING_CHAR      ( 'X' )
 #define tskBLOCKED_CHAR      ( 'B' )
-#define tskREADY_CHAR        ( 'R' )`
+#define tskREADY_CHAR        ( 'R' )
 #define tskDELETED_CHAR      ( 'D' )
 #define tskSUSPENDED_CHAR    ( 'S' )
 
@@ -1272,43 +1272,33 @@ static void prvAddNewTaskToReadyList( TCB_t * pxNewTCB ) PRIVILEGED_FUNCTION;
 /*-----------------------------------------------------------*/
 
 static void prvSelectHighestPriorityTaskEDF(void){
-    do { 
-                UBaseType_t uxTopPriority = uxTopReadyPriority; 
-                if (uxTopPriority == configEDF_PRIORITY_LEVEL) 
-                { 
-                    TCB_t * pxTCB; 
-                    TCB_t * pxEarliestDeadlineTCB = NULL; 
-                    TickType_t xEarliestDeadline = portMAX_DELAY; 
-                    List_t * const pxConstList = (&(pxReadyTasksLists[configEDF_PRIORITY_LEVEL])); 
-                    ListItem t * pxFirstItem;
 
-                    do 
-                    { 
-                        (pxConstList)->pxIndex = (pxConstList)->pxIndex->pxNext; 
-                        if ( (void *) (pxConstList)->pxIndex ==  (void *) &((pxConstList)->xListEnd))
-                        { 
-                            pxConstList->pxIndex = (pxConstList)->xListEnd.pxNext; 
-                        } 
-                        pxTCB = (pxConstList)->pxIndex->pvOwner; 
-                        if (pxTCB->jobDeadline < xEarliestDeadline) 
-                        { 
-                            xEarliestDeadline = pxTCB->jobDeadline; 
-                            pxEarliestDeadlineTCB = pxTCB; 
-                        } 
-                    } while (pxConstList->pxIndex != pxFirstItem); 
-                    pxCurrentTCB = pxEarliestDeadlineTCB; 
-                } 
-                else 
-                { 
-                    while (listLIST_IS_EMPTY(&(pxReadyTasksLists[uxTopPriority])) != pdFALSE) 
-                    { 
-                        configASSERT(uxTopPriority); 
-                        --uxTopPriority; 
-                    } 
-                    listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists[uxTopPriority])); 
-                    uxTopReadyPriority = uxTopPriority; 
-                } 
-            } while(0);
+    UBaseType_t uxTopPriority = uxTopReadyPriority; 
+    while (listLIST_IS_EMPTY(&(pxReadyTasksLists[uxTopPriority])) != pdFALSE) 
+    { 
+        configASSERT(uxTopPriority); 
+        --uxTopPriority; 
+    } 
+
+    if (uxTopPriority == configEDF_PRIORITY_LEVEL){
+        TaskHandle_t earliestTask;
+        TickType_t earliestDeadline = portMAX_DELAY;
+        TaskHandle_t currentTask;
+        listGET_OWNER_OF_NEXT_ENTRY(currentTask, &(pxReadyTasksLists[uxTopPriority]));
+        TaskHandle_t firstTask = currentTask;
+        do{
+            if (currentTask->jobDeadline < earliestDeadline){
+                earliestDeadline = currentTask->jobDeadline;
+                earliestTask = currentTask;
+            }
+            listGET_OWNER_OF_NEXT_ENTRY(currentTask, &(pxReadyTasksLists[uxTopPriority]));
+        } while(currentTask != firstTask);
+        pxCurrentTCB = earliestTask;
+    }
+    else{
+        listGET_OWNER_OF_NEXT_ENTRY(pxCurrentTCB, &(pxReadyTasksLists[uxTopPriority])); 
+    }
+    uxTopReadyPriority = uxTopPriority; 
 }
 
 #if ( configSUPPORT_STATIC_ALLOCATION == 1 )
@@ -4897,10 +4887,12 @@ BaseType_t xTaskIncrementTick( void )
                     #if(configUSE_EDF_SCHEDULER == 1)
                         if (pxTCB->taskDeadline > 0 && pxTCB->uxPriority == configEDF_PRIORITY_LEVEL)
                         {
-                            /* Job is complete, update the job deadline. */
-                            pxTCB->jobDeadline = xConstTickCount + pxTCB->taskDeadline;
+                            if(pxTCB->jobComplete == pdTrue){
+                                pxTCB->jobDeadline = xConstTickCount + pxTCB->taskDeadline;
+                                pxTCB->jobComplete = pdFALSE;
+                                pxTCB->jobStartTime = xConstTickCount;
+                            }
                             /* Mark the task as incomplete for the next job execution. */
-                            pxTCB->jobComplete = pdFALSE;
 
                         }
                     #endif
