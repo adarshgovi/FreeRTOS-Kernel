@@ -444,6 +444,7 @@ typedef struct tskTaskControlBlock       /* The old naming convention is used to
         TickType_t taskPeriod;
         TickType_t taskDeadline;
         TickType_t jobDeadline;
+        TickType_t lastActivation;
         bool jobComplete;
     #endif
 } tskTCB;
@@ -3852,9 +3853,9 @@ void vTaskStartScheduler( void )
         configASSERT( xReturn != errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY );
     }
 
-    /* Prevent compiler warnings if INCLUDE_xTaskGetIdleTaskHandle is set to 0,
-     * meaning xIdleTaskHandles are not used anywhere else. */
-    ( void ) xIdleTaskHandles;
+        /* Prevent compiler warnings if INCLUDE_xTaskGetIdleTaskHandle is set to 0,
+         * meaning xIdleTaskHandles are not used anywhere else. */
+        ( void ) xIdleTaskHandles;
 
     /* OpenOCD makes use of uxTopUsedPriority for thread debugging. Prevent uxTopUsedPriority
      * from getting optimized out as it is no longer used by the kernel. */
@@ -4887,10 +4888,10 @@ BaseType_t xTaskIncrementTick( void )
                     #if(configUSE_EDF_SCHEDULER == 1)
                         if (pxTCB->taskDeadline > 0 && pxTCB->uxPriority == configEDF_PRIORITY_LEVEL)
                         {
-                            if(pxTCB->jobComplete == pdTrue){
+                            if(pxTCB->jobComplete == pdTRUE){
                                 pxTCB->jobDeadline = xConstTickCount + pxTCB->taskDeadline;
                                 pxTCB->jobComplete = pdFALSE;
-                                pxTCB->jobStartTime = xConstTickCount;
+                                pxTCB->lastActivation = xConstTickCount;
                             }
                             /* Mark the task as incomplete for the next job execution. */
 
